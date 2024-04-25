@@ -23,6 +23,30 @@ const client = new MongoClient(uri, {
 });
 
 
+
+function verifyJWT(req, res, next) {
+    const authHeaders = req.headers.authorization;
+
+    if (!authHeaders) {
+        return res.status(401).send({ message: 'unauthorized access' });
+    }
+
+    const token = authHeaders.split(' ')[1];
+    jwt.verify(token, process.env.ACCESS_TOKEN, (err, decoded) => {
+        if (err) {
+            return res.status(403).send({ message: 'forbidden access' });
+        }
+
+        // console.log('decoded' , decoded) ;
+        req.decoded = decoded;
+        next();
+    })
+
+
+
+}
+
+
 async function run() {
     try {
         // Connect to MongoDB
@@ -33,6 +57,7 @@ async function run() {
         const collection = db.collection("users");
         const productCollection = db.collection("store");
         const flashSaleCollection = db.collection("flash-sale");
+        const ordersCollection = db.collection("orders");
 
 
         app.get('/products', async (req, res) => {
@@ -47,12 +72,13 @@ async function run() {
 
         app.get('/flash-sale', async (req, res) => {
             let query = {};
-
             const cursor = flashSaleCollection.find(query);
             const sales = await cursor.toArray();
             // res.send({ status: true, data: products });
             res.send(sales);
         });
+
+
 
         app.get('/product/:id', async (req, res) => {
             const id = req.params.id;
@@ -69,20 +95,42 @@ async function run() {
         });
 
 
-        app.post('/product', async (req, res) => {
-            const product = req.body;
-            const result = await productCollection.insertOne(product);
+        app.get('/orders', verifyJWT, async (req, res) => {
+
+            const decodedEmail = req.decoded.email;
+            const email = req.query.email;
+
+            if (decodedEmail === email) {
+
+                let query = { email: email };
+                const cursor = ordersCollection.find(query);
+                const order = await cursor.toArray();
+                res.send(order);
+
+            }
+
+            else {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+
+
+        });
+
+
+        app.post('/orders', async (req, res) => {
+            const order = req.body;
+            const result = await ordersCollection.insertOne(order);
             res.send(result);
         });
 
 
 
-        app.delete('/product/:id', async (req, res) => {
+        app.delete('/order/:id', async (req, res) => {
             const id = req.params.id;
-            const result = await productCollection.deleteOne({ _id: ObjectId(id) });
-            // console.log(result);
+            const query = { _id: new ObjectId(id) };
+            const result = await ordersCollection.deleteOne(query);
             res.send(result);
-        });
+        })
 
 
 
@@ -90,7 +138,7 @@ async function run() {
 
         // User Registration
         app.post("/api/v1/register", async (req, res) => {
-            const { username, email, password , number} = req.body;
+            const { username, email, password, number } = req.body;
 
             // Check if email already exists
             const existingUser = await collection.findOne({ email });
@@ -108,7 +156,7 @@ async function run() {
             await collection.insertOne({
                 username,
                 email,
-                number ,
+                number,
                 password: hashedPassword,
                 role: "user",
             });
